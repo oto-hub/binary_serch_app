@@ -15,10 +15,21 @@ export const TraceTable: React.FC<TraceTableProps> = ({
 }) => {
   const [copied, setCopied] = useState(false);
 
+  const [copyError, setCopyError] = useState(false);
+
   // Filter rows up to the current step to show progressive execution
   const activeRows = rows.filter(r => r.stepIndex <= currentStepIndex);
 
-  const copyTableAsText = () => {
+  const sanitizeCsvCell = (raw: string | number | null): string => {
+    if (raw === null || raw === undefined) return '""';
+    const str = String(raw);
+    // Neutralize CSV Formula Injection (CWE-1236) for spreadsheet software
+    const neutralized = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+    const escaped = neutralized.replace(/"/g, '""');
+    return `"${escaped}"`;
+  };
+
+  const copyTableAsText = async () => {
     const headers = ['回数/状態', '行番号', 'low', 'high', 'mid', 't[mid]', '比較・条件', '更新内容', '探索範囲'];
     const textRows = rows.map(r => [
       r.iterationLabel,
@@ -33,26 +44,32 @@ export const TraceTable: React.FC<TraceTableProps> = ({
     ].join('\t'));
 
     const fullText = [headers.join('\t'), ...textRows].join('\n');
-    navigator.clipboard.writeText(fullText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(fullText);
+      setCopyError(false);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 3000);
+    }
   };
 
   const downloadCSV = () => {
     const headers = ['状態', '行番号', 'low', 'high', 'mid', 't[mid]', '比較', '更新', '範囲'];
     const csvContent = [
-      headers.join(','),
+      headers.map(h => sanitizeCsvCell(h)).join(','),
       ...rows.map(r =>
         [
-          `"${r.iterationLabel}"`,
-          r.lineNumber,
-          r.low,
-          r.high,
-          r.mid,
-          r.midValue !== null ? r.midValue : '""',
-          `"${r.comparison}"`,
-          `"${r.actionNote}"`,
-          `"${r.remainingRange}"`,
+          sanitizeCsvCell(r.iterationLabel),
+          sanitizeCsvCell(r.lineNumber),
+          sanitizeCsvCell(r.low),
+          sanitizeCsvCell(r.high),
+          sanitizeCsvCell(r.mid),
+          sanitizeCsvCell(r.midValue),
+          sanitizeCsvCell(r.comparison),
+          sanitizeCsvCell(r.actionNote),
+          sanitizeCsvCell(r.remainingRange),
         ].join(',')
       ),
     ].join('\n');
@@ -62,9 +79,11 @@ export const TraceTable: React.FC<TraceTableProps> = ({
     const link = document.createElement('a');
     link.href = url;
     link.setAttribute('download', 'binary_search_trace.csv');
+    link.rel = 'noopener noreferrer';
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   return (
@@ -87,7 +106,7 @@ export const TraceTable: React.FC<TraceTableProps> = ({
             title="タブ区切りテキストとしてコピー"
           >
             {copied ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'コピー完了' : '表をコピー'}</span>
+            <span>{copied ? 'コピー完了' : copyError ? 'コピー失敗' : '表をコピー'}</span>
           </button>
 
           <button

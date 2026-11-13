@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Play,
   Pause,
@@ -11,6 +11,10 @@ import {
   Search,
 } from 'lucide-react';
 import { PRESET_CASES, DEFAULT_ARRAY } from '../utils/binarySearchTracer';
+
+const STRICT_INT_PATTERN = /^-?\d+$/;
+const MIN_SAFE_VALUE = -999999;
+const MAX_SAFE_VALUE = 999999;
 
 interface ExecutionControlsProps {
   currentStepIndex: number;
@@ -48,37 +52,65 @@ export const ExecutionControls: React.FC<ExecutionControlsProps> = ({
   onUpdateArray,
 }) => {
   const [customKeyInput, setCustomKeyInput] = useState<string>(keyToSearch.toString());
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [showArrayEditor, setShowArrayEditor] = useState<boolean>(false);
   const [arrayInputText, setArrayInputText] = useState<string>(currentArray.join(', '));
   const [arrayError, setArrayError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setCustomKeyInput(keyToSearch.toString());
+    setKeyError(null);
+  }, [keyToSearch]);
+
+  useEffect(() => {
+    setArrayInputText(currentArray.join(', '));
+  }, [currentArray]);
+
+  const parseStrictBoundedInt = (raw: string): number | null => {
+    const trimmed = raw.trim();
+    if (!STRICT_INT_PATTERN.test(trimmed)) return null;
+    const num = Number(trimmed);
+    if (!Number.isSafeInteger(num) || num < MIN_SAFE_VALUE || num > MAX_SAFE_VALUE) {
+      return null;
+    }
+    return num;
+  };
+
   const handleKeySubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const val = parseInt(customKeyInput.trim(), 10);
-    if (!isNaN(val)) {
-      onChangeKey(val);
+    const val = parseStrictBoundedInt(customKeyInput);
+    if (val === null) {
+      setKeyError(`${MIN_SAFE_VALUE}〜${MAX_SAFE_VALUE}の整数を入力してください`);
+      return;
     }
+    setKeyError(null);
+    onChangeKey(val);
   };
 
   const handleApplyCustomArray = () => {
     try {
-      const parts = arrayInputText
+      const tokens = arrayInputText
         .split(/[,\s]+/)
         .map(s => s.trim())
-        .filter(s => s.length > 0)
-        .map(s => parseInt(s, 10));
+        .filter(s => s.length > 0);
 
-      if (parts.some(isNaN)) {
-        setArrayError('半角数字をカンマ区切りで入力してください');
-        return;
-      }
-      if (parts.length < 2) {
+      if (tokens.length < 2) {
         setArrayError('要素数は2個以上必要です');
         return;
       }
-      if (parts.length > 15) {
+      if (tokens.length > 15) {
         setArrayError('要素数は最大15個まで推奨です');
         return;
+      }
+
+      const parts: number[] = [];
+      for (const token of tokens) {
+        const parsed = parseStrictBoundedInt(token);
+        if (parsed === null) {
+          setArrayError(`半角整数（${MIN_SAFE_VALUE}〜${MAX_SAFE_VALUE}）をカンマ区切りで入力してください`);
+          return;
+        }
+        parts.push(parsed);
       }
 
       // Check if sorted
@@ -223,28 +255,37 @@ export const ExecutionControls: React.FC<ExecutionControlsProps> = ({
         </div>
 
         {/* Custom Key form */}
-        <div className="flex items-center gap-2">
-          <form onSubmit={handleKeySubmit} className="flex items-center gap-2 flex-1">
-            <div className="relative flex-1 max-w-[200px]">
-              <input
-                type="number"
-                value={customKeyInput}
-                onChange={e => setCustomKeyInput(e.target.value)}
-                placeholder="探索する値"
-                className="w-full pl-8 pr-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-              />
-              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
-            </div>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <form onSubmit={handleKeySubmit} className="flex items-center gap-2 flex-1">
+              <div className="relative flex-1 max-w-[200px]">
+                <input
+                  type="number"
+                  min={MIN_SAFE_VALUE}
+                  max={MAX_SAFE_VALUE}
+                  step={1}
+                  value={customKeyInput}
+                  onChange={e => setCustomKeyInput(e.target.value)}
+                  placeholder="探索する値"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs font-mono font-bold rounded-lg border border-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                />
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2.5" />
+              </div>
 
-            <button
-              type="submit"
-              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors shrink-0"
-            >
-              設定して探索
-            </button>
-          </form>
+              <button
+                type="submit"
+                className="px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-900 text-white hover:bg-slate-800 transition-colors shrink-0"
+              >
+                設定して探索
+              </button>
+            </form>
 
-          <span className="text-xs text-slate-400 hidden sm:inline">またはクイック選択:</span>
+            <span className="text-xs text-slate-400 hidden sm:inline">またはクイック選択:</span>
+          </div>
+
+          {keyError && (
+            <p className="text-xs text-rose-600 font-medium">{keyError}</p>
+          )}
         </div>
 
         {/* Presets Grid */}
